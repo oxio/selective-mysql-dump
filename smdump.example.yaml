@@ -1,0 +1,21 @@
+# smdump configuration file
+# Rename this file to .smdump.yaml and place it in your project root
+
+# MySQL/MariaDB DSN (Data Source Name)
+# Format: user:password@tcp(host:port)/database
+# Leave password empty to be prompted for it
+dsn: "user:password@tcp(localhost:3306)/database"
+
+# Tables to dump
+tables:
+  # Tables to dump with structure AND data
+  with_data:
+    - users
+    - orders
+    - products
+
+  # Tables to dump with structure ONLY (--no-data)
+  structure_only:
+    - migrations
+    - cache
+    - sessions
