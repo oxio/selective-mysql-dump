@@ -1,27 +1,29 @@
-# selective-mysql-dump
+= selective-mysql-dump
 
 A tool for selectively dumping MySQL/MariaDB database tables based on a YAML configuration file.
 
-## DSN Format
+== DSN Format
 
 The DSN (Data Source Name) uses URL format:
 
-```
+----
 mysql://user:password@host:port/database
-```
+----
 
 The protocol prefix (`mysql://`) can be omitted and will be added automatically.
 
 Examples:
-- `mysql://user:password@localhost:3306/mydb`
-- `user:password@localhost:3306/mydb` (protocol auto-added)
-- `user@localhost:3306/mydb` (password prompt)
 
-## Configuration
+* `mysql://user:password@localhost:3306/mydb`
+* `user:password@localhost:3306/mydb` (protocol auto-added)
+* `user@localhost:3306/mydb` (password prompt)
+
+== Configuration
 
 Create a `.smdump.yaml` file in your project root:
 
-```yaml
+[source,yaml]
+----
 # MySQL/MariaDB DSN (Data Source Name)
 dsn: "mysql://user:password@localhost:3306/database"
 
@@ -38,11 +40,12 @@ tables:
     - migrations
     - cache
     - sessions
-```
+----
 
-## Usage
+== Usage
 
-```bash
+[source,bash]
+----
 # Use default config file (.smdump.yaml)
 smdump
 
@@ -51,4 +54,4 @@ smdump -c path/to/config.yaml
 
 # Specify output file
 smdump -o dump.sql
-```
+----
