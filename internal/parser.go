@@ -2,8 +2,9 @@ package internal
 
 import (
 	"fmt"
+	"net/url"
 	"os"
-	"regexp"
+	"strings"
 
 	"golang.org/x/term"
 )
@@ -18,30 +19,39 @@ type ParsedDSN struct {
 }
 
 // ParseDSN parses a MySQL DSN string
-// Format: user:password@tcp(host:port)/database
-// Or: user@tcp(host:port)/database (password empty)
+// Format: mysql://user:password@host:port/database
+// Or: user:password@host:port/database (protocol auto-added)
+// Or: user@host:port/database (password empty)
 func ParseDSN(dsn string) (*ParsedDSN, error) {
-	// Pattern to match: user:password@tcp(host:port)/database
-	// This regex captures:
-	// 1. username
-	// 2. password (optional)
-	// 3. host
-	// 4. port (optional)
-	// 5. database name
-	pattern := `^([^:@]+)(?::([^@]*))?@tcp\(([^:]+)(?::(\d+))?\)/(.+)$`
-	re := regexp.MustCompile(pattern)
+	// Add mysql:// prefix if not present
+	if !strings.Contains(dsn, "://") {
+		dsn = "mysql://" + dsn
+	}
 
-	matches := re.FindStringSubmatch(dsn)
-	if matches == nil {
-		return nil, fmt.Errorf("invalid DSN format: %s", dsn)
+	// Parse using net/url
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("invalid DSN format: %w", err)
+	}
+
+	// Extract password from URL user info
+	var password string
+	if u.User != nil {
+		password, _ = u.User.Password()
+	}
+
+	// Extract database name from path
+	database := strings.TrimPrefix(u.Path, "/")
+	if database == "" {
+		return nil, fmt.Errorf("invalid DSN format: database name is required")
 	}
 
 	parsed := &ParsedDSN{
-		User:     matches[1],
-		Password: matches[2], // May be empty
-		Host:     matches[3],
-		Port:     matches[4],
-		Database: matches[5],
+		User:     u.User.Username(),
+		Password: password,
+		Host:     u.Hostname(),
+		Port:     u.Port(),
+		Database: database,
 	}
 
 	// Set default port if not specified
@@ -68,10 +78,19 @@ func PromptForPassword() (string, error) {
 
 // BuildDSN builds a DSN string from parsed components
 func BuildDSN(parsed *ParsedDSN, password string) string {
-	if password == "" {
-		return fmt.Sprintf("%s@tcp(%s:%s)/%s", parsed.User, parsed.Host, parsed.Port, parsed.Database)
+	u := &url.URL{
+		Scheme: "mysql",
+		Host:   fmt.Sprintf("%s:%s", parsed.Host, parsed.Port),
+		Path:   "/" + parsed.Database,
 	}
-	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", parsed.User, password, parsed.Host, parsed.Port, parsed.Database)
+
+	if password != "" {
+		u.User = url.UserPassword(parsed.User, password)
+	} else {
+		u.User = url.User(parsed.User)
+	}
+
+	return u.String()
 }
 
 // GetPasswordFromDSN extracts the password from a DSN if present

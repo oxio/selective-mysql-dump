@@ -65,9 +65,10 @@ func ShowExampleConfig() string {
 # Place this file as .smdump.yaml in your project root
 
 # MySQL/MariaDB DSN (Data Source Name)
-# Format: user:password@tcp(host:port)/database
+# Format: mysql://user:password@host:port/database
+# The protocol prefix (mysql://) can be omitted and will be added automatically
 # Leave password empty to be prompted for it
-dsn: "user:password@tcp(localhost:3306)/database"
+dsn: "mysql://user:password@localhost:3306/database"
 
 # Tables to dump
 tables:
