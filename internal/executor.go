@@ -27,6 +27,9 @@ func (e *Executor) DumpTablesWithData(tables []string) error {
 	if len(tables) == 0 {
 		return nil
 	}
+	if e.OutputFile != "" {
+		fmt.Println("Dumping tables with data...")
+	}
 	return e.executeMysqldump(tables, false)
 }
 
@@ -34,6 +37,9 @@ func (e *Executor) DumpTablesWithData(tables []string) error {
 func (e *Executor) DumpTablesStructureOnly(tables []string) error {
 	if len(tables) == 0 {
 		return nil
+	}
+	if e.OutputFile != "" {
+		fmt.Println("Dumping tables structure only...")
 	}
 	return e.executeMysqldump(tables, true)
 }
@@ -84,6 +90,8 @@ func (e *Executor) buildMysqldumpCommand(parsed *ParsedDSN, tables []string, noD
 		"-h", parsed.Host,
 		"-P", parsed.Port,
 		"-u", parsed.User,
+		"--skip-lock-tables",
+		"--single-transaction",
 	}
 
 	// Add password if present
@@ -119,6 +127,11 @@ func (e *Executor) DumpAll(withData, structureOnly []string) error {
 		if err := e.DumpTablesStructureOnly(structureOnly); err != nil {
 			return fmt.Errorf("failed to dump tables structure only: %w", err)
 		}
+	}
+
+	// Print completion message if output file is specified
+	if e.OutputFile != "" {
+		fmt.Println("Done.")
 	}
 
 	return nil
