@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/oxio/selective-mysql-dump/internal"
 	"github.com/spf13/cobra"
@@ -11,6 +13,7 @@ import (
 var (
 	configFile string
 	outputFile string
+	outputDir  string
 )
 
 var rootCmd = &cobra.Command{
@@ -26,9 +29,17 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
+// generateOutputFilename generates a filename from DSN parts and timestamp
+// Format: {host}_{port}_{database}_YYMMDD-HHMM.sql
+func generateOutputFilename(parsed *internal.ParsedDSN) string {
+	timestamp := time.Now().Format("060102-1504")
+	return fmt.Sprintf("%s_%s_%s_%s.sql", parsed.Host, parsed.Port, parsed.Database, timestamp)
+}
+
 func init() {
 	rootCmd.Flags().StringVarP(&configFile, "config-file", "c", "", "Path to config file (default: ./.smdump.yaml)")
 	rootCmd.Flags().StringVarP(&outputFile, "output-file", "o", "", "Output file path (default: stdout)")
+	rootCmd.Flags().StringVarP(&outputDir, "output-dir", "d", "", "Output directory path (auto-generates filename if output-file not specified)")
 }
 
 // runDump is the main execution function
@@ -73,8 +84,20 @@ func runDump(cmd *cobra.Command, args []string) error {
 		dsn = config.DSN
 	}
 
+	// Determine output file path
+	outputPath := outputFile
+	if outputPath == "" && outputDir != "" {
+		// Generate filename from DSN parts + timestamp
+		parsed, err := internal.ParseDSN(dsn)
+		if err != nil {
+			return fmt.Errorf("failed to parse DSN: %w", err)
+		}
+		filename := generateOutputFilename(parsed)
+		outputPath = filepath.Join(outputDir, filename)
+	}
+
 	// Create executor
-	executor := internal.NewExecutor(dsn, outputFile)
+	executor := internal.NewExecutor(dsn, outputPath)
 
 	// Execute dump
 	if err := executor.DumpAll(config.Tables.WithData, config.Tables.StructureOnly); err != nil {
