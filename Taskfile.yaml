@@ -15,17 +15,57 @@ tasks:
     cmds:
       - go test -v ./...
 
-  build:
-    desc: "Build binary"
+  build:linux:
+    desc: "Build binary for Linux (amd64)"
     cmds:
-      - go build -o build/{{.BINARY_NAME}}
+      - GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o build/{{.BINARY_NAME}}-linux-amd64
 
-  build:small:
-    desc: "Build small binary"
+  build:linux:arm64:
+    desc: "Build binary for Linux (arm64)"
     cmds:
-      - go build -ldflags "-w" -o build/{{.BINARY_NAME}}
+      - GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o build/{{.BINARY_NAME}}-linux-arm64
 
-  build:smaller:
-    desc: "Build smaller binary"
+  build:linux:all:
+    desc: "Build binaries for all Linux architectures"
     cmds:
-      - go build -ldflags "-s -w" -o build/{{.BINARY_NAME}}
+      - task: build:linux
+      - task: build:linux:arm64
+
+  build:darwin:
+    desc: "Build binary for macOS (amd64)"
+    cmds:
+      - GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o build/{{.BINARY_NAME}}-darwin-amd64
+
+  build:darwin:arm64:
+    desc: "Build binary for macOS (arm64/Apple Silicon)"
+    cmds:
+      - GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o build/{{.BINARY_NAME}}-darwin-arm64
+
+  build:darwin:all:
+    desc: "Build binaries for all macOS architectures"
+    cmds:
+      - task: build:darwin
+      - task: build:darwin:arm64
+
+  build:windows:
+    desc: "Build binary for Windows (amd64)"
+    cmds:
+      - GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o build/{{.BINARY_NAME}}-windows-amd64.exe
+
+  build:windows:arm64:
+    desc: "Build binary for Windows (arm64)"
+    cmds:
+      - GOOS=windows GOARCH=arm64 go build -ldflags "-s -w" -o build/{{.BINARY_NAME}}-windows-arm64.exe
+
+  build:windows:all:
+    desc: "Build binaries for all Windows architectures"
+    cmds:
+      - task: build:windows
+      - task: build:windows:arm64
+
+  build:all:
+    desc: "Build binaries for all operating systems and architectures"
+    cmds:
+      - task: build:linux:all
+      - task: build:darwin:all
+      - task: build:windows:all
