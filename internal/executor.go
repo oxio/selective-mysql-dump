@@ -22,59 +22,19 @@ func NewExecutor(dsn, outputFile string) *Executor {
 	}
 }
 
-// DumpTablesWithData dumps the specified tables with structure and data
-func (e *Executor) DumpTablesWithData(tables []string) error {
-	if len(tables) == 0 {
-		return nil
-	}
-	if e.OutputFile != "" {
-		fmt.Println("Dumping tables with data...")
-	}
-	return e.executeMysqldump(tables, false)
-}
-
-// DumpTablesStructureOnly dumps the specified tables with structure only (--no-data)
-func (e *Executor) DumpTablesStructureOnly(tables []string) error {
-	if len(tables) == 0 {
-		return nil
-	}
-	if e.OutputFile != "" {
-		fmt.Println("Dumping tables structure only...")
-	}
-	return e.executeMysqldump(tables, true)
-}
-
-// executeMysqldump executes mysqldump command
-func (e *Executor) executeMysqldump(tables []string, noData bool) error {
-	// Parse DSN to get connection parameters
+// executeMysqldump executes mysqldump command, writing output to the given writer
+func (e *Executor) executeMysqldump(w io.Writer, tables []string, noData bool) error {
 	parsed, err := ParseDSN(e.DSN)
 	if err != nil {
 		return fmt.Errorf("failed to parse DSN: %w", err)
 	}
 
-	// Check if mysqldump is available
 	if _, err := exec.LookPath("mysqldump"); err != nil {
 		return fmt.Errorf("mysqldump command not found in PATH: %w", err)
 	}
 
-	// Build mysqldump command
 	cmd := e.buildMysqldumpCommand(parsed, tables, noData)
-
-	// Set up output
-	var output io.Writer
-	if e.OutputFile != "" {
-		file, err := os.Create(e.OutputFile)
-		if err != nil {
-			return fmt.Errorf("failed to create output file: %w", err)
-		}
-		defer file.Close()
-		output = file
-	} else {
-		output = os.Stdout
-	}
-
-	// Execute command and capture output
-	cmd.Stdout = output
+	cmd.Stdout = w
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
@@ -94,44 +54,141 @@ func (e *Executor) buildMysqldumpCommand(parsed *ParsedDSN, tables []string, noD
 		"--single-transaction",
 	}
 
-	// Add password if present
 	if parsed.Password != "" {
 		args = append(args, fmt.Sprintf("-p%s", parsed.Password))
 	}
 
-	// Add --no-data flag if structure only
 	if noData {
 		args = append(args, "--no-data")
 	}
 
-	// Add database name
 	args = append(args, parsed.Database)
-
-	// Add tables
 	args = append(args, tables...)
 
 	return exec.Command("mysqldump", args...)
 }
 
-// DumpAll dumps all configured tables
+// DumpAll dumps all configured tables using a staged approach.
+// When an output file is specified, each stage writes to a temp file and
+// the results are merged into the final output. Without an output file,
+// each stage streams directly to stdout.
 func (e *Executor) DumpAll(withData, structureOnly []string) error {
-	// Dump tables with structure and data first
-	if len(withData) > 0 {
-		if err := e.DumpTablesWithData(withData); err != nil {
-			return fmt.Errorf("failed to dump tables with data: %w", err)
-		}
-	}
-
-	// Dump tables with structure only
-	if len(structureOnly) > 0 {
-		if err := e.DumpTablesStructureOnly(structureOnly); err != nil {
-			return fmt.Errorf("failed to dump tables structure only: %w", err)
-		}
-	}
-
-	// Print completion message if output file is specified
 	if e.OutputFile != "" {
-		fmt.Println("Done.")
+		return e.dumpToFile(withData, structureOnly)
+	}
+	return e.dumpToStdout(withData, structureOnly)
+}
+
+// dumpToStdout streams each stage directly to stdout
+func (e *Executor) dumpToStdout(withData, structureOnly []string) error {
+	// Stage 1: structure of with_data tables
+	if len(withData) > 0 {
+		if err := e.executeMysqldump(os.Stdout, withData, true); err != nil {
+			return fmt.Errorf("failed to dump structure of with_data tables: %w", err)
+		}
+	}
+
+	// Stage 2: structure of structure_only tables
+	if len(structureOnly) > 0 {
+		if err := e.executeMysqldump(os.Stdout, structureOnly, true); err != nil {
+			return fmt.Errorf("failed to dump structure_only tables: %w", err)
+		}
+	}
+
+	// Stage 3: data of with_data tables
+	if len(withData) > 0 {
+		if err := e.executeMysqldump(os.Stdout, withData, false); err != nil {
+			return fmt.Errorf("failed to dump data of with_data tables: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// dumpToFile writes each stage to a temp file, then merges them into the output file
+func (e *Executor) dumpToFile(withData, structureOnly []string) error {
+	var tempFiles []string
+	defer func() {
+		for _, f := range tempFiles {
+			os.Remove(f)
+		}
+	}()
+
+	// Stage 1: structure of with_data tables
+	if len(withData) > 0 {
+		fmt.Println("Dumping structure of tables with data...")
+		tmp, err := e.dumpToTempFile(withData, true)
+		if err != nil {
+			return fmt.Errorf("failed to dump structure of with_data tables: %w", err)
+		}
+		tempFiles = append(tempFiles, tmp)
+	}
+
+	// Stage 2: structure of structure_only tables
+	if len(structureOnly) > 0 {
+		fmt.Println("Dumping structure only tables...")
+		tmp, err := e.dumpToTempFile(structureOnly, true)
+		if err != nil {
+			return fmt.Errorf("failed to dump structure_only tables: %w", err)
+		}
+		tempFiles = append(tempFiles, tmp)
+	}
+
+	// Stage 3: data of with_data tables
+	if len(withData) > 0 {
+		fmt.Println("Dumping data of tables with data...")
+		tmp, err := e.dumpToTempFile(withData, false)
+		if err != nil {
+			return fmt.Errorf("failed to dump data of with_data tables: %w", err)
+		}
+		tempFiles = append(tempFiles, tmp)
+	}
+
+	// Merge all temp files into the output file
+	fmt.Println("Merging dump files...")
+	if err := e.mergeTempFiles(tempFiles); err != nil {
+		return fmt.Errorf("failed to merge dump files: %w", err)
+	}
+
+	fmt.Println("Done.")
+	return nil
+}
+
+// dumpToTempFile runs mysqldump and writes the output to a new temp file,
+// returning the path to the temp file
+func (e *Executor) dumpToTempFile(tables []string, noData bool) (string, error) {
+	tmp, err := os.CreateTemp("", "smdump-*.sql")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer tmp.Close()
+
+	if err := e.executeMysqldump(tmp, tables, noData); err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+
+	return tmp.Name(), nil
+}
+
+// mergeTempFiles concatenates the given temp files into the output file
+func (e *Executor) mergeTempFiles(tempFiles []string) error {
+	out, err := os.Create(e.OutputFile)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer out.Close()
+
+	for _, path := range tempFiles {
+		f, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("failed to open temp file %s: %w", path, err)
+		}
+		if _, err := io.Copy(out, f); err != nil {
+			f.Close()
+			return fmt.Errorf("failed to copy temp file %s: %w", path, err)
+		}
+		f.Close()
 	}
 
 	return nil
